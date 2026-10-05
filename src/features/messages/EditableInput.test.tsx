@@ -36,7 +36,7 @@ function paste(input: ComposerInputElement, text: string) {
   });
 }
 
-function mount(initial: string | MentionDraft = "") {
+function mount(initial: string | MentionDraft = "", maxLength = 16000) {
   const ref = createRef<ComposerInputElement>();
   let draft: MentionDraft = mentionDraft(initial);
   let formats: readonly ComposerFormat[] = [];
@@ -50,7 +50,7 @@ function mount(initial: string | MentionDraft = "") {
         value={value.text}
         disabled={false}
         placeholder="Draft"
-        maxLength={16000}
+        maxLength={maxLength}
         // Explicit recipients render as mention tokens, as in RichComposerInput.
         decorationsFor={(current) =>
           current.recipients.map(({ start, end, name }) => ({
@@ -85,6 +85,30 @@ function mount(initial: string | MentionDraft = "") {
     formats: () => formats,
   };
 }
+
+it("refuses a closing-colon conversion when its literal undo source exceeds the limit", () => {
+  const h = mount(":-1", 3);
+  act(() =>
+    expect(h.input.insertText("👎", undefined, { start: 0, end: 3 }, ":")).toBe(
+      false,
+    ),
+  );
+  expect(h.input).toHaveValue(":-1");
+  expect([h.input.selectionStart, h.input.selectionEnd]).toEqual([3, 3]);
+});
+
+it("keeps exactly one typed colon when the conversion exceeds the limit", () => {
+  const h = mount(":x", 3);
+  act(() =>
+    expect(
+      h.input.insertText("too long", undefined, { start: 0, end: 2 }, ":"),
+    ).toBe(true),
+  );
+  expect(h.input).toHaveValue(":x:");
+  expect([h.input.selectionStart, h.input.selectionEnd]).toEqual([3, 3]);
+  act(() => h.input.undo(false));
+  expect(h.input).toHaveValue(":x");
+});
 
 /** Exercise ProseMirror's actual MutationObserver/readDOMChange seam, including
  * marksAcross on deletion. This is not a claim about native WebKit keystrokes. */
