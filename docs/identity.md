@@ -138,6 +138,10 @@ and sends it as `Nostr-Federated-Identity` on protected relay HTTP, upload and
 media requests. The live socket for those relays is a native WebSocket
 (`relay_socket.rs`) that fetches a fresh assertion and sends the same header
 itself, so neither the assertion nor the session token reaches JavaScript.
+A trusted relay always needs the assertion: with no usable session (never
+saved, or refused by an earlier request such as a media load, whose plain 401
+JavaScript never sees), the socket and protected HTTP report sign-in required
+instead of falling back to an unbadged request.
 Frames are delivered only after JavaScript starts the socket, and every ended
 connection releases its native stream. Only 401
 `session_required`/`session_expired` clear the session and reopen sign-in, and

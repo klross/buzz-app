@@ -385,21 +385,56 @@ async fn a_refused_session_that_storage_keeps_is_no_longer_used() {
         .await
         .unwrap_err();
     assert_eq!(error, SIGN_IN_REQUIRED);
-    // Badge requests, including the ones media loads make through `attach`,
-    // read the saved session the same way and no longer find the refused one.
+    // Badge requests read the saved session the same way and no longer find
+    // the refused one, so they ask for sign-in rather than go unbadged.
     assert!(enterprise.saved_at(&adapter, &viewer).await.is_none());
     let saved = enterprise.saved_at(&adapter, &viewer).await;
-    assert!(assertions
+    let error = assertions
         .badge(
             &identity,
             RELAY.into(),
             async { Ok(saved) },
             true,
-            Instant::now() + DEADLINE
+            Instant::now() + DEADLINE,
         )
         .await
-        .unwrap()
-        .is_none());
+        .unwrap_err();
+    assert_eq!(error, SIGN_IN_REQUIRED);
+}
+
+#[tokio::test]
+async fn a_socket_reconnect_after_a_media_refusal_asks_for_sign_in() {
+    let identity = IdentityHost::fixture();
+    let viewer = identity.viewer().await.unwrap();
+    let adapter = refusing_adapter().await;
+    let enterprise = EnterpriseAuthHost::with_saved(&adapter, &viewer, "old");
+    let assertions = RelayAssertions::new(enterprise.clone());
+    // A media load attaches a badge; the adapter refuses the session, which
+    // is removed. `fetch_media` reports this as a plain 401, so JavaScript
+    // never sees the refusal.
+    let saved = enterprise.saved_at(&adapter, &viewer).await;
+    let request = client().unwrap().get("http://relay.invalid/media");
+    let error = assertions
+        .attach_badge(&identity, RELAY.into(), async { Ok(saved) }, request)
+        .await
+        .unwrap_err();
+    assert_eq!(error, SIGN_IN_REQUIRED);
+    // The socket's next connect (`get` with `fresh`, past the trusted-relay
+    // check) asks for sign-in rather than answering `None`, which would open
+    // an unbadged webview socket.
+    let saved = enterprise.saved_at(&adapter, &viewer).await;
+    assert!(saved.is_none());
+    let error = assertions
+        .badge(
+            &identity,
+            RELAY.into(),
+            async { Ok(saved) },
+            true,
+            Instant::now() + DEADLINE,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error, SIGN_IN_REQUIRED);
 }
 
 /// An assertion adapter that issues a valid badge for `pubkey`, counting the

@@ -267,8 +267,8 @@ struct ActiveLogin {
 #[derive(Default)]
 struct Refusals {
     tokens: HashSet<[u8; 32]>,
-    /// Refusals secure storage failed to remove.
-    kept: HashSet<[u8; 32]>,
+    /// Refusals secure storage failed to remove, by the scope storing them.
+    kept: HashMap<(&'static str, String), [u8; 32]>,
     /// Writing a refusal that still mattered to disk failed.
     unrecorded: bool,
     /// Records that no longer matter but could not be removed, by keychain
@@ -662,11 +662,14 @@ impl EnterpriseAuthHost {
     fn settle(&self, scope: &Scope, digest: [u8; 32], removed: bool) {
         {
             let mut refusals = self.refusals();
+            let key = (scope.service, scope.account.clone());
             if !removed {
-                refusals.kept.insert(digest);
+                refusals.kept.insert(key, digest);
                 return;
             }
-            refusals.kept.remove(&digest);
+            if refusals.kept.get(&key) == Some(&digest) {
+                refusals.kept.remove(&key);
+            }
             // Nothing still stored depends on an unwritten refusal.
             if refusals.kept.is_empty() {
                 refusals.unrecorded = false;
@@ -1032,20 +1035,20 @@ impl EnterpriseAuthHost {
 
     /// A new login replaced the stored session in `scope`: that scope's
     /// stored session is trusted again, and the refusal record and outcome of
-    /// the session it replaced, if any, are pruned. Other scopes keep theirs.
+    /// the session it replaced, if any, are pruned. The replaced session is
+    /// whichever was stored: the one read before replacing it or, when that
+    /// read failed, a refused one storage kept. Other scopes keep theirs.
     fn adopted(&self, scope: &Scope, replaced: Option<[u8; 32]>) {
-        {
+        let replaced = {
             let mut refusals = self.refusals();
-            refusals
-                .trusted
-                .insert((scope.service, scope.account.clone()));
-            if let Some(replaced) = replaced {
-                refusals.kept.remove(&replaced);
-            }
+            let key = (scope.service, scope.account.clone());
+            let kept = refusals.kept.remove(&key);
+            refusals.trusted.insert(key);
             if refusals.kept.is_empty() {
                 refusals.unrecorded = false;
             }
-        }
+            replaced.or(kept)
+        };
         self.prune(scope.service, replaced);
     }
 
@@ -2852,6 +2855,34 @@ mod tests {
             })
         );
         host.adopted(&scope, Some(token_digest("refused-session")));
+        assert_eq!(host.cleanup().await, None);
+    }
+
+    #[tokio::test]
+    async fn a_login_that_cannot_read_the_retained_session_still_clears_its_warning() {
+        let (scope, store, _) = refusal_fixture("refused-session");
+        *store.delete_error.lock().unwrap() = Some(StoreError::Unavailable);
+        let host = EnterpriseAuthHost::with_store(store.clone());
+        let saved = host.saved_scope(scope.clone()).await.unwrap().unwrap();
+        assert_eq!(host.reject(saved).await.unwrap(), Rejection::Retained);
+        // The login's read of the session it replaces fails; the replacement
+        // itself succeeds.
+        *store.error.lock().unwrap() = Some(StoreError::Unavailable);
+        let (cancel, _canceled) = oneshot::channel();
+        assert!(host.begin("login".into(), cancel).unwrap());
+        host.commit_session(
+            &scope,
+            "login",
+            StoredSession {
+                token: Zeroizing::new("new-session".into()),
+                expires_at: "2030-01-01T00:00:00Z".into(),
+            },
+            EnterpriseAuthInfo {
+                expires_at: "2030-01-01T00:00:00Z".into(),
+            },
+        )
+        .await
+        .unwrap();
         assert_eq!(host.cleanup().await, None);
     }
 

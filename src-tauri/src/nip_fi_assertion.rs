@@ -103,9 +103,11 @@ impl RelayAssertions {
     }
 
     /// The badge for the relay serving `url`, or `None` when the relay is not a
-    /// trusted enterprise relay or no enterprise session is saved (the login
-    /// gate owns whether sign-in is required). `fresh` skips the cache. The
-    /// answer, including a refusal's, arrives by `deadline`.
+    /// trusted enterprise relay. A trusted relay needs a badge, so with no
+    /// usable session (never saved, or refused and removed by an earlier
+    /// request, such as a media load whose own error JavaScript never sees)
+    /// this asks for sign-in. `fresh` skips the cache. The answer, including a
+    /// refusal's, arrives by `deadline`.
     pub(crate) async fn get(
         &self,
         identity: &IdentityHost,
@@ -130,7 +132,7 @@ impl RelayAssertions {
     ) -> Result<Option<Assertion>> {
         let timed_out = |_| TIMED_OUT.to_owned();
         let Some(saved) = timeout_at(deadline, saved).await.map_err(timed_out)?? else {
-            return Ok(None);
+            return Err(SIGN_IN_REQUIRED.into());
         };
         let session: [u8; 32] = Sha256::digest(saved.token().as_bytes()).into();
         let now = now()?;
@@ -234,7 +236,7 @@ impl RelayAssertions {
     }
 
     /// Adds the relay badge to a protected relay HTTP request when the relay
-    /// is a trusted enterprise relay and an enterprise session is saved.
+    /// is a trusted enterprise relay; see `get`.
     pub(crate) async fn attach(
         &self,
         identity: &IdentityHost,
