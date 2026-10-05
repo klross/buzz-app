@@ -1256,6 +1256,10 @@ fn scope_for_adapter(adapter: &str, viewer: &str) -> Result<Scope> {
 }
 
 fn adapter_base_url() -> Result<String> {
+    #[cfg(test)]
+    if let Some((_, adapter)) = crate::enterprise_login_gate::TEST_BUILD.get() {
+        return Ok(adapter.into());
+    }
     let raw = option_env!("BUZZ_BUILD_ENTERPRISE_AUTH_ADAPTER_BASE_URL")
         .ok_or("This Buzz build has no enterprise authentication adapter")?;
     crate::enterprise_adapter_url::validate_enterprise_adapter_url(raw)

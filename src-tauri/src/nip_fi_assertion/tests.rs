@@ -419,22 +419,29 @@ async fn a_socket_reconnect_after_a_media_refusal_asks_for_sign_in() {
         .await
         .unwrap_err();
     assert_eq!(error, SIGN_IN_REQUIRED);
-    // The socket's next connect (`get` with `fresh`, past the trusted-relay
-    // check, through the command's request step) asks for sign-in rather than
-    // answering `None`, which would open an unbadged webview socket.
-    let saved = enterprise.saved_at(&adapter, &viewer).await;
-    assert!(saved.is_none());
-    let badge = assertions.badge(
-        &identity,
+    // The socket's next connect, through the actual command, asks for
+    // sign-in rather than answering `None`, which would open an unbadged
+    // webview socket.
+    assert!(enterprise.saved_at(&adapter, &viewer).await.is_none());
+    let adapter: &'static str = Box::leak(adapter.into_boxed_str());
+    crate::enterprise_login_gate::TEST_BUILD.set(Some((RELAY, adapter)));
+    use tauri::Manager;
+    let app = tauri::test::mock_builder()
+        .manage(identity)
+        .manage(assertions)
+        .manage(crate::relay_socket::RelaySockets::default())
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    let result = crate::relay_socket::relay_socket_connect(
+        app.state(),
+        app.state(),
+        app.state(),
         RELAY.into(),
-        async { Ok(saved) },
-        true,
-        Instant::now() + DEADLINE,
-    );
-    let error = crate::relay_socket::badged_request(&Url::parse(RELAY).unwrap(), badge)
-        .await
-        .unwrap_err();
-    assert_eq!(error, SIGN_IN_REQUIRED);
+        tauri::ipc::Channel::new(|_| Ok(())),
+    )
+    .await;
+    crate::enterprise_login_gate::TEST_BUILD.set(None);
+    assert_eq!(result.err().as_deref(), Some(SIGN_IN_REQUIRED));
 }
 
 /// An assertion adapter that issues a valid badge for `pubkey`, counting the

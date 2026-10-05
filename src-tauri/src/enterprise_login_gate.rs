@@ -78,7 +78,20 @@ fn trusted_relay_matches(relay_url: &str, trusted: &[String]) -> Result<bool, St
     Ok(trusted.iter().any(|trusted| trusted == &relay))
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Stands in for the build-time trusted relays and adapter on this test
+    /// thread, so a test can exercise a trusted relay end to end. Release
+    /// builds read only the compiled-in settings.
+    pub(crate) static TEST_BUILD: std::cell::Cell<Option<(&'static str, &'static str)>> =
+        const { std::cell::Cell::new(None) };
+}
+
 pub(crate) fn configured_trusted_relays() -> Result<Vec<String>, String> {
+    #[cfg(test)]
+    if let Some((relays, _)) = TEST_BUILD.get() {
+        return parse_enterprise_relay_allowlist(relays);
+    }
     option_env!("BUZZ_BUILD_ENTERPRISE_AUTH_RELAYS")
         .map(parse_enterprise_relay_allowlist)
         .transpose()
