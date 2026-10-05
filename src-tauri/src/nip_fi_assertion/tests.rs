@@ -420,18 +420,18 @@ async fn a_socket_reconnect_after_a_media_refusal_asks_for_sign_in() {
         .unwrap_err();
     assert_eq!(error, SIGN_IN_REQUIRED);
     // The socket's next connect (`get` with `fresh`, past the trusted-relay
-    // check) asks for sign-in rather than answering `None`, which would open
-    // an unbadged webview socket.
+    // check, through the command's request step) asks for sign-in rather than
+    // answering `None`, which would open an unbadged webview socket.
     let saved = enterprise.saved_at(&adapter, &viewer).await;
     assert!(saved.is_none());
-    let error = assertions
-        .badge(
-            &identity,
-            RELAY.into(),
-            async { Ok(saved) },
-            true,
-            Instant::now() + DEADLINE,
-        )
+    let badge = assertions.badge(
+        &identity,
+        RELAY.into(),
+        async { Ok(saved) },
+        true,
+        Instant::now() + DEADLINE,
+    );
+    let error = crate::relay_socket::badged_request(&Url::parse(RELAY).unwrap(), badge)
         .await
         .unwrap_err();
     assert_eq!(error, SIGN_IN_REQUIRED);
