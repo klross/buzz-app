@@ -316,3 +316,6 @@ controls are included. Keep Buzz running for existing agents to answer selected
 - [Governance](GOVERNANCE.md)
 - [Apache-2.0 license](LICENSE)
 - [Source attribution](NOTICE.md)
+
+> Why did the developer go broke building a chat app? Because all the
+> messages were relayed, but none of them were paid. 🐝
